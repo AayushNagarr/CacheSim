@@ -6,15 +6,28 @@
 
 typedef char byte;
 
+
+typedef enum state_type{
+    INVALID,
+    SHARED,
+    EXCLUSIVE,
+    MODIFIED
+} cstate;
+
 struct cache {
     byte address; // This is the address in memory.
     byte value; // This is the value stored in cached memory.
     // State for you to implement MESI protocol.
-    byte state;
+    cstate state;
 };
 
+typedef enum inst_type {
+    RD,
+    WR
+} type;
+
 struct decoded_inst {
-    int type; // 0 is RD, 1 is WR
+    type type; // 0 is RD, 1 is WR
     byte address;
     byte value; // Only used for WR 
 };
@@ -22,6 +35,11 @@ struct decoded_inst {
 typedef struct cache cache;
 typedef struct decoded_inst decoded;
 
+void debug(char* str){
+    #ifdef DEBUG
+    printf("%s", str);
+    #endif
+}
 
 /*
  * This is a very basic C cache simulator.
@@ -68,46 +86,85 @@ void print_cachelines(cache * c, int cache_size){
 void cpu_loop(int num_threads){
     // Initialize a CPU level cache that holds about 2 bytes of data.
     int cache_size = 2;
-    cache * c = (cache *) malloc(sizeof(cache) * cache_size);
-    
-    // Read Input file
-    FILE * inst_file = fopen("input_0.txt", "r");
-    char inst_line[20];
-    // Decode instructions and execute them.
-    while (fgets(inst_line, sizeof(inst_line), inst_file)){
-        decoded inst = decode_inst_line(inst_line);
-        /*
-         * Cache Replacement Algorithm
-         */
-        int hash = inst.address%cache_size;
-        cache cacheline = *(c+hash);
-        /*
-         * This is where you will implement the coherancy check.
-         * For now, we will simply grab the latest data from memory.
-         */
-        if(cacheline.address != inst.address){
-            // Flush current cacheline to memory
-            *(memory + cacheline.address) = cacheline.value;
-            // Assign new cacheline
-            cacheline.address = inst.address;
-            cacheline.state = -1;
-            // This is where it reads value of the address from memory
-            cacheline.value = *(memory + inst.address);
-            if(inst.type == 1){
-                cacheline.value = inst.value;
+    debug("INITIALIZED CACHE_SIZE");
+    /*c is a pointer of cache pointers, each of which hold cache_size number of cache blocks.
+     Number of caches/cores assumed as num_threads*/
+
+    cache ** c = (cache **) malloc(sizeof(cache *) * num_threads);          
+    for(int i = 0; i < num_threads; i++){
+        c[i] = (cache *) malloc(sizeof(cache) * cache_size);
+    }
+
+    #pragma omp parallel for
+    for(int i = 0; i< num_threads; i++){
+        int thread_id = omp_get_thread_num();
+        char filepath[50];
+        sprintf(filepath, "input_%d.txt", thread_id);
+
+        FILE * inst_file = fopen(filepath, "r");
+
+        char inst_line[20];
+        while (fgets(inst_line, sizeof(inst_line), inst_file)){
+            decoded inst = decode_inst_line(inst_line);
+            /*
+            * Cache Replacement Algorithm
+            */
+            int hash = inst.address%cache_size;
+            cache* cacheline = (c[thread_id]+hash);
+            /*
+            * This is where you will implement the coherancy check.
+            * For now, we will simply grab the latest data from memory.
+            */
+           
+            if(cacheline->address != inst.address  || cacheline->state == INVALID){
+                
+                // Old value 
+                if(cacheline->state == MODIFIED)
+                    *(memory + cacheline->address) = cacheline->value;
+                
+                if(inst.type == RD){
+                    for(int i = 0; i < num_threads; i++){
+                        cache* other_core = (c[i] + hash);
+                        if(other_core->state ==  INVALID)
+                            continue;
+                        else if(other_core->state == EXCLUSIVE)
+                        {
+                            other_core->state = SHARED;
+                        }
+                            cacheline->state = SHARED;
+                            cacheline->value = other_core->value;
+                    }
+                }
+
+
+                // Assign new cacheline
+                cacheline->address = inst.address;
+                // This is where it reads value of the address from memory
+                cacheline->value = *(memory + inst.address);
+
+                // Implement cache checking of other caches
+                for(int i = 0; i < omp_get_num_threads(); i++){
+                    if(cacheline->value == (*(c[i]+hash)).value)
+                }
+                if(inst.type == 1){
+                    cacheline->value = inst.value;
+                }
+                *(c[thread_id]+hash) = cacheline;
             }
-            *(c+hash) = cacheline;
-        }
-        switch(inst.type){
-            case 0:
-                printf("Reading from address %d: %d\n", cacheline.address, cacheline.value);
-                break;
-            
-            case 1:
-                printf("Writing to address %d: %d\n", cacheline.address, cacheline.value);
-                break;
+            switch(inst.type){
+                case 0:
+                    printf("Reading from address %d: %d\n", cacheline->address, cacheline->value);
+                    break;
+                
+                case 1:
+                    printf("Writing to address %d: %d\n", cacheline->address, cacheline->value);
+                    break;
+            }
         }
     }
+    
+    // Read Input file
+    // Decode instructions and execute them.
     free(c);
 }
 
