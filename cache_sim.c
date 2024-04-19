@@ -123,7 +123,10 @@ void cpu_loop(int num_threads){
         char inst_line[20];
         
         while (fgets(inst_line, sizeof(inst_line), inst_file)){
-            
+            #ifdef DEBUG
+            #pragma omp critical
+            {
+            #endif
 
             decoded inst = decode_inst_line(inst_line);
           
@@ -149,6 +152,9 @@ void cpu_loop(int num_threads){
                                 found = 1;
                                 cacheline->state = SHARED;
                                 cacheline->value = ocore->value;
+                                if(ocore->state == MODIFIED){
+                                    memory[ocore->address] = ocore->value;
+                                }
                                 ocore->state = SHARED;
                                 break;
                             }
@@ -184,8 +190,20 @@ void cpu_loop(int num_threads){
             }
             
         
+        #ifdef DEBUG
+        for (int i = 0; i < 24; i++) {
+            printf("%02d:%02d ", i, memory[i]);
+          }
+          printf("\n----------------------------------------\n");
+                  for (int i = 0; i < num_threads; i++) {
+            printf("\tCore %d\n", i);
+            print_cachelines(*(c + i), cache_size);
+            printf("\n");
+          }
+          
+        }
+        #endif
         #pragma omp barrier
-        
         }
         
     }

@@ -3,8 +3,8 @@
 all: build run
 
 build:
-	gcc -fopenmp -o bin/main cache_sim.c
+	gcc -fopenmp -o bin/main.exe cache_sim.c
 run:
-	bin/main
+	bin/main.exe
 debug:
-	gcc -g -DDEBUG -fopenmp -o bin/main cache_sim.c
+	gcc -g -DDEBUG -fopenmp -o bin/main.exe cache_sim.c
