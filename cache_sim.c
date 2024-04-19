@@ -221,6 +221,8 @@ void cpu_loop(int num_threads)
                     cacheline->state = MODIFIED;
                     cacheline->value = inst.value;
 
+
+
                     #pragma omp critical 
                     {
                         bus.broadcast = WR;
