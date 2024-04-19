@@ -21,30 +21,9 @@ struct cache {
     cstate state;
 };
 
-typedef enum request_bus_state{
-    RD,
-    WR,
-    UP,
-    ACK,
-}   reqbus_state;
-
-typedef enum response_bus_state{
-    SHRD,
-    DRTY,
-    NF
-}   resbus_state;
-
-// Bus definition
-
-typedef struct sysbus {
-    byte address;
-    reqbus_state broadcast;
-    resbus_state* response;
-} sysbus;
-
 typedef enum inst_type {
     RD,
-    WR,
+    WR
 } type;
 
 struct decoded_inst {
@@ -61,6 +40,7 @@ void debug(char* str){
     printf("%s", str);
     #endif
 }
+
 /*
  * This is a very basic C cache simulator.
  * The input files for each "Core" must be named core_1.txt, core_2.txt, core_3.txt ... core_n.txt
@@ -101,18 +81,12 @@ void print_cachelines(cache * c, int cache_size){
     }
 }
 
-sysbus bus;
 
 // This function implements the mock CPU loop that reads and writes data.
 void cpu_loop(int num_threads){
-
-    //Initializing bus response array
-
-    bus.response = (resbus_state) malloc(sizeof(resbus_state) * num_threads);
-
-
     // Initialize a CPU level cache that holds about 2 bytes of data.
     int cache_size = 2;
+    debug("INITIALIZED CACHE_SIZE");
     /*c is a pointer of cache pointers, each of which hold cache_size number of cache blocks.
      Number of caches/cores assumed as num_threads*/
 
@@ -122,77 +96,60 @@ void cpu_loop(int num_threads){
     }
 
     #pragma omp parallel for
-        for(int i = 0; i< num_threads; i++){
-
-        int core_id = omp_get_thread_num();
+    for(int i = 0; i< num_threads; i++){
+        int thread_id = omp_get_thread_num();
         char filepath[50];
-        sprintf(filepath, "input_%d.txt", core_id);
+        sprintf(filepath, "input_%d.txt", thread_id);
+
         FILE * inst_file = fopen(filepath, "r");
+
         char inst_line[20];
-    
         while (fgets(inst_line, sizeof(inst_line), inst_file)){
             decoded inst = decode_inst_line(inst_line);
             /*
             * Cache Replacement Algorithm
             */
             int hash = inst.address%cache_size;
-            cache * cacheline = (c[core_id]+hash);
+            cache* cacheline = (c[thread_id]+hash);
             /*
             * This is where you will implement the coherancy check.
             * For now, we will simply grab the latest data from memory.
             */
-            if(cacheline->address != inst.address || cacheline->state == INVALID){
-                //Handle miss
+           
+            if(cacheline->address != inst.address  || cacheline->state == INVALID){
+                
+                // Old value 
                 if(cacheline->state == MODIFIED)
-                    memory[cacheline->address] = cacheline->value;
+                    *(memory + cacheline->address) = cacheline->value;
                 
-                cacheline->address = inst.address;
-
                 if(inst.type == RD){
-                    bus.broadcast = RD;
-
-                    int i = 0;
-                    int notfoundcount = 0;
-
-                    // Spincheck for response
-                    while(bus.response[i] != SHRD || bus.response[i] != DRTY){
-
-                        if(i == core_id) continue;
-
-                        if (bus.response[i] == NF) notfoundcount++;
-                        if(notfoundcount == num_threads) break;
-                        i = (i+1) % num_threads;
-                    }
-
-                    if(bus.response[i] == SHRD){
-                        cacheline->state = SHARED;
-                    }
-                    else if(bus.response[i] == DRTY){
-                        cacheline->value = memory[cacheline->address];
-                        cacheline->state = SHARED;
-                    }
-                    else if(bus.response[i] == NF){
-                        cacheline->value = memory[cacheline->address];
-                        cacheline->state = EXCLUSIVE;
+                    for(int i = 0; i < num_threads; i++){
+                        cache* other_core = (c[i] + hash);
+                        if(other_core->state ==  INVALID)
+                            continue;
+                        else if(other_core->state == EXCLUSIVE)
+                        {
+                            other_core->state = SHARED;
+                        }
+                            cacheline->state = SHARED;
+                            cacheline->value = other_core->value;
                     }
                 }
-                else{
 
-                }
-                
 
-                *(memory + cacheline->address) = cacheline->value;
                 // Assign new cacheline
                 cacheline->address = inst.address;
-                cacheline->state = -1;
                 // This is where it reads value of the address from memory
                 cacheline->value = *(memory + inst.address);
+
+                // Implement cache checking of other caches
+                for(int i = 0; i < omp_get_num_threads(); i++){
+                    if(cacheline->value == (*(c[i]+hash)).value)
+                }
                 if(inst.type == 1){
                     cacheline->value = inst.value;
                 }
-                *(c+hash) = cacheline;
-            } else {
-                //Handle hit
+                *(c[thread_id]+hash) = cacheline;
             }
             switch(inst.type){
                 case 0:
@@ -204,9 +161,9 @@ void cpu_loop(int num_threads){
                     break;
             }
         }
-        }
+    }
     
-        // Read Input file
+    // Read Input file
     // Decode instructions and execute them.
     free(c);
 }
