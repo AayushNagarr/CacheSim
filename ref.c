@@ -1,8 +1,8 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <omp.h>
-#include <string.h>
-#include <ctype.h>
+#include<stdlib.h>
+#include<stdio.h>
+#include<omp.h>
+#include<string.h>
+#include<ctype.h>
 
 typedef char byte;
 
@@ -14,18 +14,9 @@ typedef enum state_type{
     MODIFIED
 } cstate;
 
-typedef enum state_type
-{
-    INVALID,
-    SHARED,
-    EXCLUSIVE,
-    MODIFIED
-} cstate;
-
-struct cache
-{
+struct cache {
     byte address; // This is the address in memory.
-    byte value;   // This is the value stored in cached memory.
+    byte value; // This is the value stored in cached memory.
     // State for you to implement MESI protocol.
     cstate state;
 };
@@ -38,7 +29,7 @@ typedef enum inst_type {
 struct decoded_inst {
     type type; // 0 is RD, 1 is WR
     byte address;
-    byte value; // Only used for WR
+    byte value; // Only used for WR 
 };
 
 typedef struct cache cache;
@@ -58,24 +49,20 @@ void debug(char* str){
  * - WR <address> <val>
  */
 
-byte *memory;
+byte * memory;
 
 // Decode instruction lines
-decoded decode_inst_line(char *buffer)
-{
+decoded decode_inst_line(char * buffer){
     decoded inst;
     char inst_type[2];
     sscanf(buffer, "%s", inst_type);
-    if (!strcmp(inst_type, "RD"))
-    {
+    if(!strcmp(inst_type, "RD")){
         inst.type = 0;
         int addr = 0;
         sscanf(buffer, "%s %d", inst_type, &addr);
         inst.value = -1;
         inst.address = addr;
-    }
-    else if (!strcmp(inst_type, "WR"))
-    {
+    } else if(!strcmp(inst_type, "WR")){
         inst.type = 1;
         int addr = 0;
         int val = 0;
@@ -87,23 +74,16 @@ decoded decode_inst_line(char *buffer)
 }
 
 // Helper function to print the cachelines
-void print_cachelines(cache *c, int cache_size)
-{
-    for (int i = 0; i < cache_size; i++)
-    {
-        cache cacheline = *(c + i);
+void print_cachelines(cache * c, int cache_size){
+    for(int i = 0; i < cache_size; i++){
+        cache cacheline = *(c+i);
         printf("Address: %d, State: %d, Value: %d\n", cacheline.address, cacheline.state, cacheline.value);
     }
 }
 
-sysbus bus;             //bus declaration
 
 // This function implements the mock CPU loop that reads and writes data.
-void cpu_loop(int num_threads)
-{
-    // Initializing bus response array
-    bus.response = (resbus_state *)malloc(sizeof(resbus_state) * num_threads);
-
+void cpu_loop(int num_threads){
     // Initialize a CPU level cache that holds about 2 bytes of data.
     int cache_size = 2;
     debug("INITIALIZED CACHE_SIZE");
@@ -188,12 +168,11 @@ void cpu_loop(int num_threads)
     free(c);
 }
 
-int main(int c, char *argv[])
-{
+int main(int c, char * argv[]){
     // Initialize Global memory
     // Let's assume the memory module holds about 24 bytes of data.
     int memory_size = 24;
-    memory = (byte *)malloc(sizeof(byte) * memory_size);
+    memory = (byte *) malloc(sizeof(byte) * memory_size);
     cpu_loop(1);
     free(memory);
 }
