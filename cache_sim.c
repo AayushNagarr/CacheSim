@@ -144,6 +144,8 @@ void cpu_loop(int num_threads)
         FILE *inst_file = fopen(filepath, "r");
         char inst_line[20];
 
+        #pragma omp barrier
+        
         while (fgets(inst_line, sizeof(inst_line), inst_file))
         {
             decoded inst = decode_inst_line(inst_line);
@@ -168,88 +170,115 @@ void cpu_loop(int num_threads)
 
                 if (inst.type == READ)
                 {
-// First check for value on cache
-                #pragma omp critical 
-                {
-                    bus.broadcast = RD;
+            // First check for value on cache
+                    #pragma omp critical 
+                    {
+                        bus.broadcast = RD;
+                    }
+                    bus.address = cacheline->address;
+
+                    int i = 0;
+                    int notfoundcount = 0;
+
+                    // Spincheck for response
+                    while (bus.response[i] != SHRD || bus.response[i] != DRTY)
+                    {
+
+                        if (i == core_id)
+                            continue;
+
+                        if (bus.response[i] == NF)
+                            notfoundcount++;
+                        if (notfoundcount == (num_threads - 1))
+                            break;
+                        i = (i + 1) % num_threads;
+                    }
+
+                    if (bus.response[i] == SHRD)
+                    {
+                        cacheline->state = SHARED;
+                    }
+                    else if (bus.response[i] == DRTY)
+                    {
+                        // State was in a modified state, so that modified state changes memory and we read from modified memory
+                        cacheline->value = memory[cacheline->address];
+                        cacheline->state = SHARED;
+                    }
+                    else if (bus.response[i] == NF)
+                    {
+                        // NF indicates that the other state either did not have the address, or had the address in an invalid state
+                        cacheline->value = memory[cacheline->address];
+                        cacheline->state = EXCLUSIVE;
+                    }
+
+                    for (int i = 0; i < num_threads; i++)
+                    {
+                        bus.response[i] = ACK;
+                    }
+                    bus.in_use = 0;
                 }
-                bus.address = cacheline->address;
-
-                int i = 0;
-                int notfoundcount = 0;
-
-                // Spincheck for response
-                while (bus.response[i] != SHRD || bus.response[i] != DRTY)
-                {
-
-                    if (i == core_id)
-                        continue;
-
-                    if (bus.response[i] == NF)
-                        notfoundcount++;
-                    if (notfoundcount == (num_threads - 1))
-                        break;
-                    i = (i + 1) % num_threads;
-                }
-
-                if (bus.response[i] == SHRD)
-                {
-                    cacheline->state = SHARED;
-                }
-                else if (bus.response[i] == DRTY)
-                {
-                    // State was in a modified state, so that modified state changes memory and we read from modified memory
-                    cacheline->value = memory[cacheline->address];
-                    cacheline->state = SHARED;
-                }
-                else if (bus.response[i] == NF)
-                {
-                    // NF indicates that the other state either did not have the address, or had the address in an invalid state
-                    cacheline->value = memory[cacheline->address];
-                    cacheline->state = EXCLUSIVE;
-                }
-
-                for (int i = 0; i < num_threads; i++)
-                {
-                    bus.response[i] = ACK;
-                }
-            }
-            else{
-                cacheline->state = MODIFIED;
-                cacheline->value = inst.value;
-
-                #pragma omp critical 
-                {
-                    bus.broadcast = WR;
-                }
-
-                int i = 0;
-                int invalidcount = 0;
-                while (invalidcount != (num_threads - 1))
-                {
-                    if (i == core_id)
-                        continue;
-                    if (bus.response[i] == NF)
-                        invalidcount++;
-                    i = (i + 1) % num_threads;
-                }
-            }
-
-                *(memory + cacheline->address) = cacheline->value;
-                // Assign new cacheline
-                cacheline->address = inst.address;
-                cacheline->state = -1;
-                // This is where it reads value of the address from memory
-                cacheline->value = *(memory + inst.address);
-                if (inst.type == 1)
-                {
+                else{
+                    cacheline->state = MODIFIED;
                     cacheline->value = inst.value;
+
+                    #pragma omp critical 
+                    {
+                        bus.broadcast = WR;
+                    }
+
+                    int i = 0;
+                    int invalidcount = 0;
+                    while (invalidcount != (num_threads - 1))
+                    {
+                        if (i == core_id)
+                            continue;
+                        if (bus.response[i] == NF)
+                            invalidcount++;
+                        i = (i + 1) % num_threads;
+                    }
+                    for(int i = 0; i < num_threads; i++){
+                        bus.response[i] = ACK;
+                    }
+                    bus.in_use = 0;
                 }
-                *(c + hash) = cacheline;
+
+                // *(memory + cacheline->address) = cacheline->value;
+                // Assign new cacheline
+                // cacheline->state = -1;
+                // This is where it reads value of the address from memory
+                // cacheline->value = *(memory + inst.address);
+                // if (inst.type == 1)
+                // {
+                //     cacheline->value = inst.value;
+                // }
+                // *(c + hash) = cacheline;
             }
             else
             {
-                printf("aa");
+                //handle hit
+                if(inst.type == WRITE){
+                    cacheline->state = MODIFIED;
+                    bus.address = cacheline->address;
+                    #pragma omp critical
+                    {
+                        bus.broadcast = WR;
+                    }
+                    int i = 0;
+                    int invalidcount = 0;
+                    while (invalidcount != (num_threads - 1))
+                    {
+                        if (i == core_id)
+                            continue;
+                        if (bus.response[i] == NF)
+                            invalidcount++;
+                        i = (i + 1) % num_threads;
+                    }
+                    for(int i = 0; i < num_threads; i++){
+                        bus.response[i] = ACK;
+                    }
+                    bus.in_use = 0;
+                }
+                
             }
             switch (inst.type)
             {
